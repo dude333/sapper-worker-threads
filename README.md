@@ -1,111 +1,86 @@
-# sapper-template
+# sapper-woker-threads
 
-The default [Sapper](https://github.com/sveltejs/sapper) template, available for Rollup and webpack.
+Testing worker_threads on [Sapper](https://github.com/sveltejs/sapper).
 
+## Implementation
 
-## Getting started
+`/worker` route (src/routes/worker/index.svelte) will fetch `worker/run` that starts the worker threads.
 
+### worker/run.js
 
-### Using `degit`
-
-[`degit`](https://github.com/Rich-Harris/degit) is a scaffolding tool that lets you create a directory from a branch in a repository. Use either the `rollup` or `webpack` branch in `sapper-template`:
-
-```bash
-# for Rollup
-npx degit "sveltejs/sapper-template#rollup" my-app
-# for webpack
-npx degit "sveltejs/sapper-template#webpack" my-app
-```
-
-
-### Using GitHub templates
-
-Alternatively, you can use GitHub's template feature with the [sapper-template-rollup](https://github.com/sveltejs/sapper-template-rollup) or [sapper-template-webpack](https://github.com/sveltejs/sapper-template-webpack) repositories.
-
-
-### Running the project
-
-However you get the code, you can install dependencies and run the project in development mode with:
-
-```bash
-cd my-app
-npm install # or yarn
-npm run dev
-```
-
-Open up [localhost:3000](http://localhost:3000) and start clicking around.
-
-Consult [sapper.svelte.dev](https://sapper.svelte.dev) for help getting started.
-
-
-## Structure
-
-Sapper expects to find two directories in the root of your project —  `src` and `static`.
-
-
-### src
-
-The [src](src) directory contains the entry points for your app — `client.js`, `server.js` and (optionally) a `service-worker.js` — along with a `template.html` file and a `routes` directory.
-
-
-#### src/routes
-
-This is the heart of your Sapper app. There are two kinds of routes — *pages*, and *server routes*.
-
-**Pages** are Svelte components written in `.svelte` files. When a user first visits the application, they will be served a server-rendered version of the route in question, plus some JavaScript that 'hydrates' the page and initialises a client-side router. From that point forward, navigating to other pages is handled entirely on the client for a fast, app-like feel. (Sapper will preload and cache the code for these subsequent pages, so that navigation is instantaneous.)
-
-**Server routes** are modules written in `.js` files, that export functions corresponding to HTTP methods. Each function receives Express `request` and `response` objects as arguments, plus a `next` function. This is useful for creating a JSON API, for example.
-
-There are three simple rules for naming the files that define your routes:
-
-* A file called `src/routes/about.svelte` corresponds to the `/about` route. A file called `src/routes/blog/[slug].svelte` corresponds to the `/blog/:slug` route, in which case `params.slug` is available to the route
-* The file `src/routes/index.svelte` (or `src/routes/index.js`) corresponds to the root of your app. `src/routes/about/index.svelte` is treated the same as `src/routes/about.svelte`.
-* Files and directories with a leading underscore do *not* create routes. This allows you to colocate helper modules and components with the routes that depend on them — for example you could have a file called `src/routes/_helpers/datetime.js` and it would *not* create a `/_helpers/datetime` route
-
-
-### static
-
-The [static](static) directory contains any static assets that should be available. These are served using [sirv](https://github.com/lukeed/sirv).
-
-In your [service-worker.js](src/service-worker.js) file, you can import these as `files` from the generated manifest...
+Server side route:
 
 ```js
-import { files } from '@sapper/service-worker';
+import { main } from "./worker";
+
+export async function get(req, res) {
+  res.setHeader('Content-Type', 'text/html');
+
+  try {
+    await main();
+    res.end("ok");
+  } catch (error) {
+    res.end(error.message);
+  }
+}
 ```
 
-...so that you can cache them (though you can choose not to, for example if you don't want to cache very large files).
+### worker.js
 
+The `main` function will be called and will create a new Worker that calls itself. This time it'll run the code inside the block `if (!isMainThread) {`, but when this part is reached only the first line is executed (`console.log('Inside Worker!');`) and an error is returned. It seems it's trying to evoke the Polka initialization again, hence the Error: listen EADDRINUSE: address already in use :::3000.
 
-## Bundler config
+```js
+import { Worker, isMainThread } from 'worker_threads';
 
-Sapper uses Rollup or webpack to provide code-splitting and dynamic imports, as well as compiling your Svelte components. With webpack, it also provides hot module reloading. As long as you don't do anything daft, you can edit the configuration files to add whatever plugins you'd like.
+export const main = () => new Promise(function (resolve, reject) {
+  if (!isMainThread) return;
 
+  // This re-loads the current file inside a Worker instance.
+  const wk = new Worker(__filename);
+  wk.on("online", () => console.log("Worker UP"));
+  wk.on("message", (msg) => {
+    console.log("message ~>", msg);
+    resolve(msg);
+  });
+  wk.on("exit", (code) => console.warn("exit ~>", code));
+  wk.on("error", (err) => {
+    console.error("error ~>", err);
+    reject(err);
+  });
+})
 
-## Production mode and deployment
-
-To start a production version of your app, run `npm run build && npm start`. This will disable live reloading, and activate the appropriate bundler plugins.
-
-You can deploy your application to any environment that supports Node 10 or above. As an example, to deploy to [Vercel Now](https://vercel.com) when using `sapper export`, run these commands:
-
-```bash
-npm install -g now
-now
+if (!isMainThread) {
+  console.log('Inside Worker!');
+  console.log(isMainThread);  // Prints 'false'.
+}
 ```
 
-If your app can't be exported to a static site, you can use the [now-sapper](https://github.com/thgh/now-sapper) builder. You can find instructions on how to do so in its [README](https://github.com/thgh/now-sapper#basic-usage).
-
-
-## Using external components
-
-When using Svelte components installed from npm, such as [@sveltejs/svelte-virtual-list](https://github.com/sveltejs/svelte-virtual-list), Svelte needs the original component source (rather than any precompiled JavaScript that ships with the component). This allows the component to be rendered server-side, and also keeps your client-side app smaller.
-
-Because of that, it's essential that the bundler doesn't treat the package as an *external dependency*. You can either modify the `external` option under `server` in [rollup.config.js](rollup.config.js) or the `externals` option in [webpack.config.js](webpack.config.js), or simply install the package to `devDependencies` rather than `dependencies`, which will cause it to get bundled (and therefore compiled) with your app:
-
-```bash
-npm install -D @sveltejs/svelte-virtual-list
+## Results
 ```
+> sapper dev
 
-
-## Bugs and feedback
-
-Sapper is in early development, and may have the odd rough edge here and there. Please be vocal over on the [Sapper issue tracker](https://github.com/sveltejs/sapper/issues).
+✔ client (3.3s)
+✔ server (3.3s)
+> Listening on http://localhost:3000
+✔ service worker (84ms)
+Worker UP
+Inside Worker!
+error ~> Error: listen EADDRINUSE: address already in use :::3000
+    at Server.setupListenHandle [as _listen2] (net.js:1313:16)
+    at listenInCluster (net.js:1361:12)
+    at Server.listen (net.js:1449:7)
+    at Polka.listen (/mnt/disk2/adr/lab2/pollers/worker/node_modules/.pnpm/registry.npmjs.org/polka/1.0.0-next.11/node_modules/polka/build.js:59:22)
+    at Object.<anonymous> (/mnt/disk2/adr/lab2/pollers/worker/__sapper__/dev/server/server.js:3119:3)
+    at Module._compile (internal/modules/cjs/loader.js:1133:30)
+    at Object.Module._extensions..js (internal/modules/cjs/loader.js:1153:10)
+    at Module.load (internal/modules/cjs/loader.js:977:32)
+    at Function.Module._load (internal/modules/cjs/loader.js:877:14)
+    at Function.executeUserEntryPoint [as runMain] (internal/modules/run_main.js:74:12) {
+  code: 'EADDRINUSE',
+  errno: 'EADDRINUSE',
+  syscall: 'listen',
+  address: '::',
+  port: 3000
+}
+exit ~> 1
+```
