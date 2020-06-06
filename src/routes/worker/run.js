@@ -1,4 +1,4 @@
-import { main } from "./worker";
+import { main } from "./main";
 
 export async function get(req, res) {
   res.setHeader('Content-Type', 'text/html');
