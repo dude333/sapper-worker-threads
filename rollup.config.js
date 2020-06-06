@@ -60,7 +60,7 @@ export default {
 	},
 
 	server: {
-		input: config.server.input(),
+		input: { ...config.server.input(), threads: "src/routes/worker/threads.js" },
 		output: config.server.output(),
 		plugins: [
 			replace({

@@ -1,10 +1,11 @@
 import { Worker, isMainThread } from 'worker_threads';
+import path from "path";
 
 export const main = () => new Promise(function (resolve, reject) {
   if (!isMainThread) return;
 
   // This re-loads the current file inside a Worker instance.
-  const wk = new Worker(__filename);
+  const wk = new Worker(path.join(__dirname, "threads.js"));
   wk.on("online", () => console.log("Worker UP"));
   wk.on("message", (msg) => {
     console.log("message ~>", msg);
@@ -15,9 +16,9 @@ export const main = () => new Promise(function (resolve, reject) {
     console.error("error ~>", err);
     reject(err);
   });
-})
+});;
 
-if (!isMainThread) {
-  console.log('Inside Worker!');
-  console.log(isMainThread);  // Prints 'false'.
-}
+// if (!isMainThread) {
+//   console.log('Inside Worker!');
+//   console.log(isMainThread);  // Prints 'false'.
+// }
